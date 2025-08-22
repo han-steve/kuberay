@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -103,43 +104,97 @@ func TestCheckAllPodsRunning(t *testing.T) {
 	}
 }
 
-func TestPodName(t *testing.T) {
+func TestWorkerPodName(t *testing.T) {
 	tests := []struct {
 		name     string
 		prefix   string
-		nodeType rayv1.RayNodeType
 		expected string
 	}{
 		{
-			name:     "short cluster name, head pod",
-			prefix:   "ray-cluster-01",
-			nodeType: rayv1.HeadNode,
-			expected: "ray-cluster-01-head",
-		},
-		{
 			name:     "short cluster name, worker pod",
 			prefix:   "ray-cluster-group-name-01",
-			nodeType: rayv1.WorkerNode,
 			expected: "ray-cluster-group-name-01-worker-",
-		},
-		{
-			name:     "long cluster name, head pod",
-			prefix:   "ray-cluster-0000000000000000000000011111111122222233333333333333",
-			nodeType: rayv1.HeadNode,
-			expected: "ray-cluster-00000000000000000000000111111111222222-head",
 		},
 		{
 			name:     "long cluster name, worker pod",
 			prefix:   "ray-cluster-0000000000000000000000011111111122222233333333333333-group-name",
-			nodeType: rayv1.WorkerNode,
 			expected: "ray-cluster-00000000000000000000000111111111222222-worker-",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			isPodNameGenerated := test.nodeType == rayv1.WorkerNode // HeadPod name is now fixed
-			str := PodName(test.prefix, test.nodeType, isPodNameGenerated)
+			str := PodName(test.prefix, rayv1.WorkerNode, true)
+			if str != test.expected {
+				t.Logf("expected: %q", test.expected)
+				t.Logf("actual: %q", str)
+				t.Error("PodName returned an unexpected string")
+			}
+
+			// 63 (max pod name length) - 5 random hexadecimal characters from generateName
+			if len(str) > 58 {
+				t.Error("Generated pod name is too long")
+			}
+		})
+	}
+}
+
+func TestHeadPodName(t *testing.T) {
+	defer os.Unsetenv(ENABLE_DETERMINISTIC_HEAD_POD_NAME)
+
+	tests := []struct {
+		name                       string
+		prefix                     string
+		enableDeterministicHeadPod string
+		expected                   string
+	}{
+		{
+			name:                       "short cluster name, deterministic head pod name",
+			prefix:                     "ray-cluster-01",
+			enableDeterministicHeadPod: "true",
+			expected:                   "ray-cluster-01-head",
+		},
+		{
+			name:                       "short cluster name, non-deterministic head pod name",
+			prefix:                     "ray-cluster-01",
+			enableDeterministicHeadPod: "false",
+			expected:                   "ray-cluster-01-head-",
+		},
+		{
+			name:                       "short cluster name, feature flag not set",
+			prefix:                     "ray-cluster-01",
+			enableDeterministicHeadPod: "unset",
+			expected:                   "ray-cluster-01-head-",
+		},
+		{
+			name:                       "long cluster name, deterministic head pod name",
+			prefix:                     "ray-cluster-0000000000000000000000011111111122222233333333333333",
+			enableDeterministicHeadPod: "true",
+			expected:                   "ray-cluster-00000000000000000000000111111111222222-head",
+		},
+		{
+			name:                       "long cluster name, non-deterministic head pod name",
+			prefix:                     "ray-cluster-0000000000000000000000011111111122222233333333333333",
+			enableDeterministicHeadPod: "false",
+			expected:                   "ray-cluster-00000000000000000000000111111111222222-head-",
+		},
+		{
+			name:                       "long cluster name, feature flag not set",
+			prefix:                     "ray-cluster-0000000000000000000000011111111122222233333333333333",
+			enableDeterministicHeadPod: "unset",
+			expected:                   "ray-cluster-00000000000000000000000111111111222222-head-",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if test.enableDeterministicHeadPod == "unset" {
+				os.Unsetenv(ENABLE_DETERMINISTIC_HEAD_POD_NAME)
+			} else {
+				os.Setenv(ENABLE_DETERMINISTIC_HEAD_POD_NAME, test.enableDeterministicHeadPod)
+			}
+
+			str := PodName(test.prefix, rayv1.HeadNode, !IsDeterministicHeadPodNameEnabled())
 			if str != test.expected {
 				t.Logf("expected: %q", test.expected)
 				t.Logf("actual: %q", str)
@@ -215,9 +270,7 @@ func TestCheckRouteName(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			name := CheckRouteName(context.Background(), tc.routeName, tc.namespace)
-			if name != tc.want {
-				t.Fatalf("got %s, want %s", name, tc.want)
-			}
+			assert.Equal(t, tc.want, name)
 		})
 	}
 }
@@ -343,10 +396,7 @@ func TestGetHeadGroupServiceAccountName(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := GetHeadGroupServiceAccountName(tc.input)
-			if got != tc.want {
-				t.Fatalf("got %s, want %s", got, tc.want)
-			}
+			assert.Equal(t, tc.want, GetHeadGroupServiceAccountName(tc.input))
 		})
 	}
 }
@@ -545,13 +595,16 @@ func TestGetWorkerGroupDesiredReplicas(t *testing.T) {
 	assert.Equal(t, GetWorkerGroupDesiredReplicas(ctx, workerGroupSpec), replicas*numOfHosts)
 }
 
-func TestCalculateMinReplicas(t *testing.T) {
+func TestCalculateMinAndMaxReplicas(t *testing.T) {
 	suspend := true
 
 	tests := []struct {
 		name     string
 		specs    []rayv1.WorkerGroupSpec
-		expected int32
+		expected struct {
+			minReplicas int32
+			maxReplicas int32
+		}
 	}{
 		{
 			name: "Single group with one host",
@@ -559,9 +612,16 @@ func TestCalculateMinReplicas(t *testing.T) {
 				{
 					NumOfHosts:  1,
 					MinReplicas: ptr.To[int32](2),
+					MaxReplicas: ptr.To[int32](3),
 				},
 			},
-			expected: 2,
+			expected: struct {
+				minReplicas int32
+				maxReplicas int32
+			}{
+				minReplicas: 2,
+				maxReplicas: 3,
+			},
 		},
 		{
 			name: "Single group with four hosts",
@@ -569,9 +629,16 @@ func TestCalculateMinReplicas(t *testing.T) {
 				{
 					NumOfHosts:  4,
 					MinReplicas: ptr.To[int32](2),
+					MaxReplicas: ptr.To[int32](3),
 				},
 			},
-			expected: 8,
+			expected: struct {
+				minReplicas int32
+				maxReplicas int32
+			}{
+				minReplicas: 8,
+				maxReplicas: 12,
+			},
 		},
 		{
 			name: "Two worker groups: one with a single host, one with two hosts",
@@ -579,13 +646,21 @@ func TestCalculateMinReplicas(t *testing.T) {
 				{
 					NumOfHosts:  1,
 					MinReplicas: ptr.To[int32](4),
+					MaxReplicas: ptr.To[int32](4),
 				},
 				{
 					NumOfHosts:  2,
 					MinReplicas: ptr.To[int32](3),
+					MaxReplicas: ptr.To[int32](3),
 				},
 			},
-			expected: 10,
+			expected: struct {
+				minReplicas int32
+				maxReplicas int32
+			}{
+				minReplicas: 10,
+				maxReplicas: 10,
+			},
 		},
 		{
 			name: "Two groups with suspended",
@@ -593,87 +668,23 @@ func TestCalculateMinReplicas(t *testing.T) {
 				{
 					NumOfHosts:  1,
 					MinReplicas: ptr.To[int32](3),
+					MaxReplicas: ptr.To[int32](3),
 					Suspend:     &suspend,
 				},
 				{
 					NumOfHosts:  1,
 					MinReplicas: ptr.To[int32](1),
-					Suspend:     &suspend,
-				},
-			},
-			expected: 0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cluster := &rayv1.RayCluster{
-				Spec: rayv1.RayClusterSpec{
-					WorkerGroupSpecs: tt.specs,
-				},
-			}
-			assert.Equal(t, tt.expected, CalculateMinReplicas(cluster))
-		})
-	}
-}
-
-func TestCalculateMaxReplicas(t *testing.T) {
-	suspend := true
-
-	tests := []struct {
-		name     string
-		specs    []rayv1.WorkerGroupSpec
-		expected int32
-	}{
-		{
-			name: "Single group with one host",
-			specs: []rayv1.WorkerGroupSpec{
-				{
-					NumOfHosts:  1,
-					MaxReplicas: ptr.To[int32](3),
-				},
-			},
-			expected: 3,
-		},
-		{
-			name: "Single group with four hosts",
-			specs: []rayv1.WorkerGroupSpec{
-				{
-					NumOfHosts:  4,
-					MaxReplicas: ptr.To[int32](3),
-				},
-			},
-			expected: 12,
-		},
-		{
-			name: "Two worker groups: one with a single host, one with two hosts",
-			specs: []rayv1.WorkerGroupSpec{
-				{
-					NumOfHosts:  1,
-					MaxReplicas: ptr.To[int32](4),
-				},
-				{
-					NumOfHosts:  2,
-					MaxReplicas: ptr.To[int32](3),
-				},
-			},
-			expected: 10,
-		},
-		{
-			name: "Two groups with suspended",
-			specs: []rayv1.WorkerGroupSpec{
-				{
-					NumOfHosts:  1,
-					MaxReplicas: ptr.To[int32](3),
-					Suspend:     &suspend,
-				},
-				{
-					NumOfHosts:  1,
 					MaxReplicas: ptr.To[int32](1),
 					Suspend:     &suspend,
 				},
 			},
-			expected: 0,
+			expected: struct {
+				minReplicas int32
+				maxReplicas int32
+			}{
+				minReplicas: 0,
+				maxReplicas: 0,
+			},
 		},
 	}
 
@@ -684,7 +695,11 @@ func TestCalculateMaxReplicas(t *testing.T) {
 					WorkerGroupSpecs: tt.specs,
 				},
 			}
-			assert.Equal(t, tt.expected, CalculateMaxReplicas(cluster))
+
+			// Check min replicas
+			assert.Equal(t, tt.expected.minReplicas, CalculateMinReplicas(cluster))
+			// Check max replicas
+			assert.Equal(t, tt.expected.maxReplicas, CalculateMaxReplicas(cluster))
 		})
 	}
 }
@@ -903,6 +918,42 @@ func TestIsAutoscalingEnabled(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			assert.Equal(t, tc.expected, IsAutoscalingEnabled(tc.spec))
+		})
+	}
+}
+
+func TestIsAutoscalingV2Enabled(t *testing.T) {
+	tests := map[string]struct {
+		spec     *rayv1.RayClusterSpec
+		expected bool
+	}{
+		"should be false when spec is nil": {
+			spec:     nil,
+			expected: false,
+		},
+		"should be false when autoscaler options is nil": {
+			spec: &rayv1.RayClusterSpec{
+				AutoscalerOptions: nil,
+			},
+			expected: false,
+		},
+		"should be false when autoscaler options is not v2": {
+			spec: &rayv1.RayClusterSpec{
+				AutoscalerOptions: &rayv1.AutoscalerOptions{Version: ptr.To(rayv1.AutoscalerVersionV1)},
+			},
+			expected: false,
+		},
+		"should be true when autoscaler options is v2": {
+			spec: &rayv1.RayClusterSpec{
+				AutoscalerOptions: &rayv1.AutoscalerOptions{Version: ptr.To(rayv1.AutoscalerVersionV2)},
+			},
+			expected: true,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, IsAutoscalingV2Enabled(tc.spec))
 		})
 	}
 }
@@ -1184,6 +1235,50 @@ func TestCalculateResources(t *testing.T) {
 			assert.Equal(t, tt.expected.minResources.Cpu().String(), minResource.Cpu().String())
 			assert.Equal(t, tt.expected.minResources.Memory().String(), minResource.Memory().String())
 			assert.Equal(t, deepCopyCluster, tt.cluster)
+		})
+	}
+}
+
+func TestGetContainerCommand(t *testing.T) {
+	tests := []struct {
+		name              string
+		additionalOptions []string
+		expected          []string
+		enableLoginShell  bool
+	}{
+		{
+			name:              "enable login shell is false",
+			enableLoginShell:  false,
+			additionalOptions: []string{},
+			expected:          []string{"/bin/bash", "-c", "--"},
+		},
+		{
+			name:              "enable login shell is true",
+			enableLoginShell:  true,
+			additionalOptions: []string{},
+			expected:          []string{"/bin/bash", "-cl", "--"},
+		},
+		{
+			name:              "enable login shell is false and additional options is not empty",
+			enableLoginShell:  false,
+			additionalOptions: []string{"e"},
+			expected:          []string{"/bin/bash", "-ce", "--"},
+		},
+		{
+			name:              "enable login shell is true and additional options is not empty",
+			enableLoginShell:  true,
+			additionalOptions: []string{"e"},
+			expected:          []string{"/bin/bash", "-cel", "--"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if test.enableLoginShell {
+				os.Setenv("ENABLE_LOGIN_SHELL", "true")
+				defer os.Unsetenv("ENABLE_LOGIN_SHELL")
+			}
+			assert.Equal(t, test.expected, GetContainerCommand(test.additionalOptions))
 		})
 	}
 }

@@ -527,9 +527,7 @@ func TestReconcile_RemoveWorkersToDelete_RandomDelete(t *testing.T) {
 
 			// Check if the workersToDelete are deleted.
 			for _, pod := range podList.Items {
-				if contains(tc.workersToDelete, pod.Name) {
-					t.Fatalf("WorkersToDelete is not actually deleted, %s", pod.Name)
-				}
+				assert.NotContainsf(t, tc.workersToDelete, pod.Name, "WorkersToDelete is not actually deleted, %s", pod.Name)
 			}
 			numRandomDelete := expectedNumWorkersToDelete - (len(tc.workersToDelete) - len(nonExistentPodSet))
 			assert.Equal(t, tc.numRandomDelete, numRandomDelete)
@@ -624,9 +622,7 @@ func TestReconcile_RemoveWorkersToDelete_NoRandomDelete(t *testing.T) {
 
 			// Check if the workersToDelete are deleted.
 			for _, pod := range podList.Items {
-				if contains(tc.workersToDelete, pod.Name) {
-					t.Fatalf("WorkersToDelete is not actually deleted, %s", pod.Name)
-				}
+				assert.NotContainsf(t, tc.workersToDelete, pod.Name, "WorkersToDelete is not actually deleted, %s", pod.Name)
 			}
 		})
 	}
@@ -674,10 +670,8 @@ func TestReconcile_RandomDelete_OK(t *testing.T) {
 	assert.Len(t, podList.Items, int(localExpectReplicaNum),
 		"Replica number is wrong after reconcile expect %d actual %d", expectReplicaNum, len(podList.Items))
 
-	for i := 0; i < len(podList.Items); i++ {
-		if contains(workersToDelete, podList.Items[i].Name) {
-			t.Fatalf("WorkersToDelete is not actually deleted, %s", podList.Items[i].Name)
-		}
+	for _, pod := range podList.Items {
+		assert.NotContainsf(t, workersToDelete, pod.Name, "WorkersToDelete is not actually deleted, %s", pod.Name)
 	}
 }
 
@@ -1159,16 +1153,6 @@ func TestReconcileHeadlessService(t *testing.T) {
 	assert.Len(t, serviceList.Items, 1, "Service list len is wrong")
 }
 
-func contains(slice []string, item string) bool {
-	set := make(map[string]struct{}, len(slice))
-	for _, s := range slice {
-		set[s] = struct{}{}
-	}
-
-	_, ok := set[item]
-	return ok
-}
-
 func getNotFailedPodItemNum(podList corev1.PodList) int {
 	count := 0
 	for _, aPod := range podList.Items {
@@ -1620,146 +1604,6 @@ func TestReconcile_UpdateClusterState(t *testing.T) {
 	err = fakeClient.Get(ctx, namespacedName, &cluster)
 	require.NoError(t, err, "Fail to get RayCluster after updating state")
 	assert.Equal(t, cluster.Status.State, state, "Cluster state should be updated")
-}
-
-func TestInconsistentRayClusterStatus(t *testing.T) {
-	newScheme := runtime.NewScheme()
-	_ = rayv1.AddToScheme(newScheme)
-	fakeClient := clientFake.NewClientBuilder().WithScheme(newScheme).WithRuntimeObjects().Build()
-	r := &RayClusterReconciler{
-		Client:   fakeClient,
-		Recorder: &record.FakeRecorder{},
-		Scheme:   scheme.Scheme,
-	}
-
-	// Mock data
-	timeNow := metav1.Now()
-	oldStatus := rayv1.RayClusterStatus{
-		State:                   rayv1.Ready,
-		ReadyWorkerReplicas:     1,
-		AvailableWorkerReplicas: 1,
-		DesiredWorkerReplicas:   1,
-		MinWorkerReplicas:       1,
-		MaxWorkerReplicas:       10,
-		LastUpdateTime:          &timeNow,
-		Endpoints: map[string]string{
-			utils.ClientPortName:    strconv.Itoa(utils.DefaultClientPort),
-			utils.DashboardPortName: strconv.Itoa(utils.DefaultDashboardPort),
-			utils.GcsServerPortName: strconv.Itoa(utils.DefaultGcsServerPort),
-			utils.MetricsPortName:   strconv.Itoa(utils.DefaultMetricsPort),
-		},
-		Head: rayv1.HeadInfo{
-			PodIP:     "10.244.0.6",
-			ServiceIP: "10.96.140.249",
-		},
-		ObservedGeneration: 1,
-		Reason:             "test reason",
-	}
-
-	// `inconsistentRayClusterStatus` is used to check whether the old and new RayClusterStatus are inconsistent
-	// by comparing different fields. If the only differences between the old and new status are the `LastUpdateTime`
-	// and `ObservedGeneration` fields, the status update will not be triggered.
-	ctx := context.Background()
-
-	testCases := []struct {
-		modifyStatus func(*rayv1.RayClusterStatus)
-		name         string
-		expectResult bool
-	}{
-		{
-			name: "State is updated, expect result to be true",
-			modifyStatus: func(newStatus *rayv1.RayClusterStatus) {
-				newStatus.State = rayv1.Suspended
-			},
-			expectResult: true,
-		},
-		{
-			name: "Reason is updated, expect result to be true",
-			modifyStatus: func(newStatus *rayv1.RayClusterStatus) {
-				newStatus.Reason = "new reason"
-			},
-			expectResult: true,
-		},
-		{
-			name: "ReadyWorkerReplicas is updated, expect result to be true",
-			modifyStatus: func(newStatus *rayv1.RayClusterStatus) {
-				newStatus.ReadyWorkerReplicas = oldStatus.ReadyWorkerReplicas + 1
-			},
-			expectResult: true,
-		},
-		{
-			name: "AvailableWorkerReplicas is updated, expect result to be true",
-			modifyStatus: func(newStatus *rayv1.RayClusterStatus) {
-				newStatus.AvailableWorkerReplicas = oldStatus.AvailableWorkerReplicas + 1
-			},
-			expectResult: true,
-		},
-		{
-			name: "DesiredWorkerReplicas is updated, expect result to be true",
-			modifyStatus: func(newStatus *rayv1.RayClusterStatus) {
-				newStatus.DesiredWorkerReplicas = oldStatus.DesiredWorkerReplicas + 1
-			},
-			expectResult: true,
-		},
-		{
-			name: "MinWorkerReplicas is updated, expect result to be true",
-			modifyStatus: func(newStatus *rayv1.RayClusterStatus) {
-				newStatus.MinWorkerReplicas = oldStatus.MinWorkerReplicas + 1
-			},
-			expectResult: true,
-		},
-		{
-			name: "MaxWorkerReplicas is updated, expect result to be true",
-			modifyStatus: func(newStatus *rayv1.RayClusterStatus) {
-				newStatus.MaxWorkerReplicas = oldStatus.MaxWorkerReplicas + 1
-			},
-			expectResult: true,
-		},
-		{
-			name: "Endpoints is updated, expect result to be true",
-			modifyStatus: func(newStatus *rayv1.RayClusterStatus) {
-				newStatus.Endpoints["fakeEndpoint"] = "10009"
-			},
-			expectResult: true,
-		},
-		{
-			name: "Head.PodIP is updated, expect result to be true",
-			modifyStatus: func(newStatus *rayv1.RayClusterStatus) {
-				newStatus.Head.PodIP = "test head pod ip"
-			},
-			expectResult: true,
-		},
-		{
-			name: "RayClusterReplicaFailure is updated, expect result to be true",
-			modifyStatus: func(newStatus *rayv1.RayClusterStatus) {
-				meta.SetStatusCondition(&newStatus.Conditions, metav1.Condition{Type: string(rayv1.RayClusterReplicaFailure), Status: metav1.ConditionTrue})
-			},
-			expectResult: true,
-		},
-		{
-			name: "LastUpdateTime is updated, expect result to be false",
-			modifyStatus: func(newStatus *rayv1.RayClusterStatus) {
-				newStatus.LastUpdateTime = &metav1.Time{Time: timeNow.Add(time.Hour)}
-			},
-			expectResult: false,
-		},
-		{
-			name: "ObservedGeneration is updated, expect result to be false",
-			modifyStatus: func(newStatus *rayv1.RayClusterStatus) {
-				newStatus.ObservedGeneration = oldStatus.ObservedGeneration + 1
-			},
-			expectResult: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			newStatus := oldStatus.DeepCopy()
-			testCase.modifyStatus(newStatus)
-			result := r.inconsistentRayClusterStatus(ctx, oldStatus, *newStatus)
-			assert.Equal(t, testCase.expectResult, result)
-		})
-	}
 }
 
 func TestCalculateStatus(t *testing.T) {
@@ -3003,6 +2847,7 @@ func Test_RedisCleanup(t *testing.T) {
 				assert.Len(t, rayClusterList.Items, 1)
 				assert.True(t, controllerutil.ContainsFinalizer(&rayClusterList.Items[0], utils.GCSFaultToleranceRedisCleanupFinalizer))
 				assert.Equal(t, int64(300), *jobList.Items[0].Spec.ActiveDeadlineSeconds)
+				assert.Equal(t, []string{"/bin/bash", "-c", "--"}, jobList.Items[0].Spec.Template.Spec.Containers[utils.RayContainerIndex].Command)
 
 				// Simulate the Job succeeded.
 				job := jobList.Items[0]
@@ -3289,6 +3134,9 @@ func TestReconcile_NumOfHosts(t *testing.T) {
 
 func TestSumGPUs(t *testing.T) {
 	nvidiaGPUResourceName := corev1.ResourceName("nvidia.com/gpu")
+	nvidiaMIG1g10gbResourceName := corev1.ResourceName("nvidia.com/mig-1g.10gb")
+	nvidiaMIG2g20gbResourceName := corev1.ResourceName("nvidia.com/mig-2g.20gb")
+	nvidiaMIG3g40gbResourceName := corev1.ResourceName("nvidia.com/mig-3g.40gb")
 	googleTPUResourceName := corev1.ResourceName("google.com/tpu")
 
 	tests := []struct {
@@ -3317,10 +3165,23 @@ func TestSumGPUs(t *testing.T) {
 			input: map[corev1.ResourceName]resource.Quantity{
 				corev1.ResourceCPU:                 resource.MustParse("1"),
 				nvidiaGPUResourceName:              resource.MustParse("3"),
+				nvidiaMIG1g10gbResourceName:        resource.MustParse("2"),
 				corev1.ResourceName("foo.bar/gpu"): resource.MustParse("2"),
 				googleTPUResourceName:              resource.MustParse("1"),
 			},
-			expected: resource.MustParse("5"),
+			expected: resource.MustParse("7"),
+		},
+		{
+			name: "multiple MIG types specified",
+			input: map[corev1.ResourceName]resource.Quantity{
+				corev1.ResourceCPU:          resource.MustParse("1"),
+				nvidiaGPUResourceName:       resource.MustParse("1"),
+				nvidiaMIG1g10gbResourceName: resource.MustParse("2"),
+				nvidiaMIG2g20gbResourceName: resource.MustParse("3"),
+				nvidiaMIG3g40gbResourceName: resource.MustParse("4"),
+				googleTPUResourceName:       resource.MustParse("1"),
+			},
+			expected: resource.MustParse("10"),
 		},
 	}
 

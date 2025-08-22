@@ -18,17 +18,20 @@ import (
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rs/cors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/protobuf/encoding/protojson"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/ray-project/kuberay/apiserver/pkg/interceptor"
 	"github.com/ray-project/kuberay/apiserver/pkg/manager"
 	"github.com/ray-project/kuberay/apiserver/pkg/server"
 	"github.com/ray-project/kuberay/apiserver/pkg/swagger"
 	"github.com/ray-project/kuberay/apiserver/pkg/util"
+	"github.com/ray-project/kuberay/apiserversdk"
 	api "github.com/ray-project/kuberay/proto/go_client"
 )
 
@@ -39,6 +42,8 @@ var (
 	logFile            = flag.String("logFilePath", "", "Synchronize logs to local file")
 	localSwaggerPath   = flag.String("localSwaggerPath", "", "Specify the root directory for `*.swagger.json` the swagger files.")
 	grpcTimeout        = flag.Duration("grpc_timeout", util.GRPCServerDefaultTimeout, "gRPC server timeout duration")
+	enableAPIServerV2  = flag.Bool("enable-api-server-v2", true, "Enable API server V2")
+	corsAllowOrigin    = flag.String("cors-allow-origin", "", "Set the Access-Control-Allow-Origin response header for the HTTP proxy.")
 	healthy            int32
 )
 
@@ -145,9 +150,36 @@ func startHttpProxy() {
 	registerHttpHandlerFromEndpoint(ctx, api.RegisterRayJobSubmissionServiceHandlerFromEndpoint, "RayJobSubmissionService", runtimeMux)
 
 	// Create a top level mux to include both Http gRPC servers and other endpoints like metrics
-	topMux := http.NewServeMux()
-	// Seems /apis (matches /apis/v1alpha1/clusters) works fine
-	topMux.Handle("/", runtimeMux)
+	var topMux *http.ServeMux
+	if *enableAPIServerV2 {
+		kubernetesConfig, err := config.GetConfig()
+		if err != nil {
+			klog.Fatalf("Failed to load kubeconfig: %v", err)
+		}
+
+		topMux, err = apiserversdk.NewMux(apiserversdk.MuxConfig{
+			KubernetesConfig: kubernetesConfig,
+		})
+		if err != nil {
+			klog.Fatalf("Failed to create API server mux: %v", err)
+		}
+	} else {
+		topMux = http.NewServeMux()
+	}
+
+	if *corsAllowOrigin != "" {
+		klog.Info("Enabling CORS with Access-Control-Allow-Origin:", *corsAllowOrigin)
+		handler := cors.New(cors.Options{
+			AllowedOrigins: []string{*corsAllowOrigin},
+		}).Handler(runtimeMux)
+
+		topMux.Handle("/", handler)
+	} else {
+		klog.Info("Access-Control-Allow-Origin not set, CORS is disabled.")
+		// Seems /apis (matches /apis/v1alpha1/clusters) works fine
+		topMux.Handle("/", runtimeMux)
+	}
+
 	topMux.Handle("/metrics", promhttp.Handler())
 	topMux.HandleFunc("/swagger/", serveSwaggerFile)
 	topMux.HandleFunc("/healthz", serveHealth)

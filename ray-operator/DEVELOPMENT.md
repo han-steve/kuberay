@@ -24,9 +24,9 @@ For local development, we recommend using [Kind](https://kind.sigs.k8s.io/) to c
 Currently, KubeRay uses go v1.24 for development.
 
 ```bash
-go install golang.org/dl/go1.24.2@latest
-go1.24.2 download
-export GOROOT=$(go1.24.2 env GOROOT)
+go install golang.org/dl/go1.24.0@latest
+go1.24.0 download
+export GOROOT=$(go1.24.0 env GOROOT)
 export PATH="$GOROOT/bin:$PATH"
 ```
 
@@ -97,6 +97,20 @@ kubectl logs deployments/kuberay-operator
 * The command `make docker-build` (Step 3) will also run `make build` (Go project compilation).
 * Step 6 also installs the custom resource definitions (CRDs) used by the KubeRay operator.
 
+#### Using Local Deployment Script
+
+You can also run the `local_deploy.sh` bash script (located in `ray-operator/hack`) which runs the steps shown above, but deletes and recreates the kind cluster each run for consistency during repeated development.
+
+There are configuable variables in the script, the defaults are shown below:
+
+```bash
+IMAGE_TAG="kuberay-dev"
+KIND_CLUSTER_NAME="kuberay-dev"
+KIND_NODE_IMAGE="kindest/node:v1.24.0"
+```
+
+Additionally, you can run the script with a `-l` or `--logs` to stream the logs of the ray operator to the terminal after installation.
+
 ### Run the operator outside the cluster
 
 This step requires you to switch your working directory to the kuberay project root. If
@@ -110,7 +124,7 @@ cd ..
 
 ```bash
 # Step 1: Create a Kind cluster
-kind create cluster --image=kindest/node:v1.24.0
+kind create cluster --image=kindest/node:v1.25.0
 
 # Step 2: Install CRDs
 make -C ray-operator install
@@ -157,7 +171,7 @@ ok   github.com/ray-project/kuberay/ray-operator/controllers/utils 0.015s covera
 The e2e tests can be run by executing the following command:
 
 ```bash
-# Reinstall the kuberay-operator to make sure it use the latest nightly image you just built.
+# Reinstall the kuberay-operator to make sure it uses the latest nightly image you just built.
 helm uninstall kuberay-operator
 helm install kuberay-operator --set image.repository=kuberay/operator --set image.tag=nightly ../helm-chart/kuberay-operator
 make test-e2e
@@ -244,7 +258,7 @@ Run tests on your local environment
 
 ### Generating API Reference
 
-We use [elastic/crd-ref-docs](https://github.com/elastic/crd-ref-docs) to generate API reference for CRDs of KubeRay. The configuration file of `crd-ref-docs` is located at `hack/config.yaml`. Please refer to the documenation for more details.
+We use [elastic/crd-ref-docs](https://github.com/elastic/crd-ref-docs) to generate API reference for CRDs of KubeRay. The configuration file of `crd-ref-docs` is located at `hack/config.yaml`. Please refer to the documentation for more details.
 
 Generate API refernece:
 
@@ -289,7 +303,7 @@ python3 ../scripts/rbac-check.py
 
 ### Building Multi architecture images locally
 
-Most of image repositories supports multiple architectures container images. When running an image from a device, the docker client automatically pulls the correct the image with a matching architectures. The easiest way to build multi-arch images is to utilize Docker `Buildx` plug-in which allows easily building multi-arch images using Qemu emulation from a single machine. Buildx plugin is readily available when you install the [Docker Desktop](https://docs.docker.com/desktop/) on your machine.
+Most image repositories support multiple architectures container images. When running an image from a device, the docker client automatically pulls the correct image with a matching architecture. The easiest way to build multi-arch images is to utilize Docker `Buildx` plug-in which allows easily building multi-arch images using Qemu emulation from a single machine. Buildx plugin is readily available when you install the [Docker Desktop](https://docs.docker.com/desktop/) on your machine.
 Verify Buildx installation and make sure it does not return error
 
 ```console

@@ -28,7 +28,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
-          go-version: v1.22
+          go-version: v1.24
 
       - name: Check out code into the Go module directory
         uses: actions/checkout@v2
@@ -133,7 +133,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
-          go-version: v1.22
+          go-version: v1.24
 
       - name: Check out code into the Go module directory
         uses: actions/checkout@v2
@@ -207,7 +207,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v3
       with:
-        go-version: v1.22
+        go-version: v1.24
 
     - name: Check out code into the Go module directory
       uses: actions/checkout@v2
@@ -320,7 +320,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
-          go-version: v1.22
+          go-version: v1.24
 
       - name: Check out code into the Go module directory
         uses: actions/checkout@v2
@@ -341,32 +341,3 @@ jobs:
       - name: Test
         run: go test ./pkg/... -race -parallel 4
         working-directory: ${{env.working-directory}}
-
-  python-client-test:
-    runs-on: ubuntu-22.04
-    name: Python Client Test
-    steps:
-      - name: Set up Docker
-        uses: docker/setup-docker-action@v4
-
-      - name: Install Kind
-        run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.22.0/kind-linux-amd64
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
-          kind create cluster
-        shell: bash
-
-      - name: Checkout Python
-        uses: actions/checkout@v2
-
-      - name: Setup Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: '3.x'
-
-      - name: Install package and run unittest for Python client
-        working-directory: ./clients/python-client
-        run: |
-          pip install -e .
-          python3 -m unittest discover 'python_client_test/'

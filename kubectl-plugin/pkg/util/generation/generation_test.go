@@ -62,6 +62,9 @@ func TestGenerateRayClusterApplyConfig(t *testing.T) {
 				},
 			},
 		},
+		Autoscaler: &Autoscaler{
+			Version: AutoscalerV2,
+		},
 	}
 
 	result := testRayClusterConfig.GenerateRayClusterApplyConfig()
@@ -78,6 +81,10 @@ func TestGenerateRayClusterApplyConfig(t *testing.T) {
 			Annotations: annotations,
 		},
 		Spec: &rayv1ac.RayClusterSpecApplyConfiguration{
+			EnableInTreeAutoscaling: ptr.To(true),
+			AutoscalerOptions: &rayv1ac.AutoscalerOptionsApplyConfiguration{
+				Version: ptr.To(rayv1.AutoscalerVersionV2),
+			},
 			RayVersion: ptr.To(util.RayVersion),
 			HeadGroupSpec: &rayv1ac.HeadGroupSpecApplyConfiguration{
 				RayStartParams: map[string]string{"dashboard-host": "1.2.3.4", "num-cpus": "0"},
@@ -157,9 +164,11 @@ func TestGenerateRayClusterApplyConfig(t *testing.T) {
 
 func TestGenerateRayJobApplyConfig(t *testing.T) {
 	testRayJobYamlObject := RayJobYamlObject{
-		RayJobName:     "test-ray-job",
-		Namespace:      "default",
-		SubmissionMode: "InteractiveMode",
+		RayJobName:               "test-ray-job",
+		Namespace:                "default",
+		SubmissionMode:           "InteractiveMode",
+		TTLSecondsAfterFinished:  100,
+		ShutdownAfterJobFinishes: true,
 		RayClusterConfig: RayClusterConfig{
 			RayVersion: ptr.To(util.RayVersion),
 			Image:      ptr.To(util.RayImage),
@@ -197,8 +206,10 @@ func TestGenerateRayJobApplyConfig(t *testing.T) {
 			Namespace: ptr.To("default"),
 		},
 		Spec: &rayv1ac.RayJobSpecApplyConfiguration{
-			SubmissionMode: ptr.To(rayv1.JobSubmissionMode(testRayJobYamlObject.SubmissionMode)),
-			Entrypoint:     ptr.To(""),
+			SubmissionMode:           ptr.To(rayv1.JobSubmissionMode(testRayJobYamlObject.SubmissionMode)),
+			Entrypoint:               ptr.To(""),
+			TTLSecondsAfterFinished:  ptr.To(int32(100)),
+			ShutdownAfterJobFinishes: ptr.To(true),
 			RayClusterSpec: &rayv1ac.RayClusterSpecApplyConfiguration{
 				RayVersion: ptr.To(util.RayVersion),
 				HeadGroupSpec: &rayv1ac.HeadGroupSpecApplyConfiguration{
@@ -284,6 +295,9 @@ func TestConvertRayClusterApplyConfigToYaml(t *testing.T) {
 			"american": "goldfinch",
 			"piping":   "plover",
 		},
+		Autoscaler: &Autoscaler{
+			Version: AutoscalerV1,
+		},
 		RayVersion: ptr.To(util.RayVersion),
 		Image:      ptr.To(util.RayImage),
 		Head: &Head{
@@ -322,6 +336,9 @@ metadata:
   name: test-ray-cluster
   namespace: default
 spec:
+  enableInTreeAutoscaling: true
+  autoscalerOptions:
+    version: v1
   headGroupSpec:
     rayStartParams:
       num-cpus: "0"
@@ -438,8 +455,11 @@ func TestGenerateResources(t *testing.T) {
 
 func TestGenerateRayClusterSpec(t *testing.T) {
 	testRayClusterConfig := RayClusterConfig{
+		Autoscaler: &Autoscaler{
+			Version: AutoscalerV2,
+		},
 		RayVersion:     ptr.To("1.2.3"),
-		Image:          ptr.To("rayproject/ray:1.2.3"),
+		Image:          ptr.To("rayproject/ray:2.46.0"),
 		ServiceAccount: ptr.To("my-service-account"),
 		Head: &Head{
 			CPU:              ptr.To("1"),
@@ -479,6 +499,10 @@ func TestGenerateRayClusterSpec(t *testing.T) {
 	}
 
 	expected := &rayv1ac.RayClusterSpecApplyConfiguration{
+		EnableInTreeAutoscaling: ptr.To(true),
+		AutoscalerOptions: &rayv1ac.AutoscalerOptionsApplyConfiguration{
+			Version: ptr.To(rayv1.AutoscalerVersionV2),
+		},
 		RayVersion: ptr.To("1.2.3"),
 		HeadGroupSpec: &rayv1ac.HeadGroupSpecApplyConfiguration{
 			RayStartParams: map[string]string{"softmax": "GELU"},
@@ -488,7 +512,7 @@ func TestGenerateRayClusterSpec(t *testing.T) {
 					Containers: []corev1ac.ContainerApplyConfiguration{
 						{
 							Name:  ptr.To("ray-head"),
-							Image: ptr.To("rayproject/ray:1.2.3"),
+							Image: ptr.To("rayproject/ray:2.46.0"),
 							Resources: &corev1ac.ResourceRequirementsApplyConfiguration{
 								Requests: &corev1.ResourceList{
 									corev1.ResourceCPU:                          resource.MustParse("1"),
@@ -540,7 +564,7 @@ func TestGenerateRayClusterSpec(t *testing.T) {
 						Containers: []corev1ac.ContainerApplyConfiguration{
 							{
 								Name:  ptr.To("ray-worker"),
-								Image: ptr.To("rayproject/ray:1.2.3"),
+								Image: ptr.To("rayproject/ray:2.46.0"),
 								Resources: &corev1ac.ResourceRequirementsApplyConfiguration{
 									Requests: &corev1.ResourceList{
 										corev1.ResourceCPU:    resource.MustParse("2"),
@@ -568,7 +592,7 @@ func TestGenerateRayClusterSpec(t *testing.T) {
 						Containers: []corev1ac.ContainerApplyConfiguration{
 							{
 								Name:  ptr.To("ray-worker"),
-								Image: ptr.To("rayproject/ray:1.2.3"),
+								Image: ptr.To("rayproject/ray:2.46.0"),
 								Resources: &corev1ac.ResourceRequirementsApplyConfiguration{
 									Requests: &corev1.ResourceList{
 										corev1.ResourceName(util.ResourceNvidiaGPU): resource.MustParse("1"),
@@ -866,8 +890,8 @@ labels:
 annotations:
   dead: beef
 
-ray-version: 2.44.0
-image: rayproject/ray:2.44.0
+ray-version: 2.46.0
+image: rayproject/ray:2.46.0
 
 head:
   cpu: 3
@@ -914,8 +938,8 @@ gke:
 				Name:        ptr.To("dxia-test"),
 				Labels:      map[string]string{"foo": "bar"},
 				Annotations: map[string]string{"dead": "beef"},
-				RayVersion:  ptr.To("2.44.0"),
-				Image:       ptr.To("rayproject/ray:2.44.0"),
+				RayVersion:  ptr.To("2.46.0"),
+				Image:       ptr.To("rayproject/ray:2.46.0"),
 				Head: &Head{
 					CPU:              ptr.To("3"),
 					Memory:           ptr.To("5Gi"),
