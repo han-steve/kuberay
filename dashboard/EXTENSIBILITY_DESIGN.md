@@ -13,9 +13,9 @@ Based on comparison between the current dashboard and `roblox-ray-frontend-refer
 to be made extensible are:
 
 1. **Namespace Management**: Roblox version assumes Kubeflow integration (no namespace dropdown), while open-source
-needs standalone namespace selection
+   needs standalone namespace selection
 2. **Job/Cluster Type Filtering**: Roblox has custom filtering for "Batch API" jobs and notebook vs. job cluster
-types based on `mlp.rbx.com` labels
+   types based on `mlp.rbx.com` labels
 3. **Link Generation**: Dashboard links are hardcoded vs. configurable
 4. **Custom Labels**: Roblox-specific labels like `mlp.rbx.com/component` and `mlp.rbx.com/notebook-type`
 5. **Boolean Feature Flag**: Current `roblox = false` flag controls multiple behaviors
@@ -42,15 +42,15 @@ export interface FeatureFlags {
 
 export class FeatureConfig implements FeatureFlags {
   get kubeflowMode(): boolean {
-    return process.env.NEXT_KUBEFLOW_MODE === 'true';
+    return process.env.NEXT_KUBEFLOW_MODE === "true";
   }
 
   get enableJobTypeFiltering(): boolean {
-    return process.env.NEXT_JOB_TYPE_FILTERING === 'true';
+    return process.env.NEXT_JOB_TYPE_FILTERING === "true";
   }
 
   get enableClusterTypeFiltering(): boolean {
-    return process.env.NEXT_CLUSTER_TYPE_FILTERING === 'true';
+    return process.env.NEXT_CLUSTER_TYPE_FILTERING === "true";
   }
 
   get customBranding(): boolean {
@@ -59,16 +59,18 @@ export class FeatureConfig implements FeatureFlags {
 
   // Configuration getters
   get defaultNamespace(): string {
-    return process.env.NEXT_DEFAULT_NAMESPACE || 'default';
+    return process.env.NEXT_DEFAULT_NAMESPACE || "default";
   }
 
   get defaultNamespaces(): string[] {
     const namespaces = process.env.NEXT_DEFAULT_NAMESPACES;
-    return namespaces ? namespaces.split(',').map(ns => ns.trim()) : [this.defaultNamespace];
+    return namespaces
+      ? namespaces.split(",").map((ns) => ns.trim())
+      : [this.defaultNamespace];
   }
 
   get dashboardTitle(): string {
-    return process.env.NEXT_DASHBOARD_TITLE || 'KubeRay Dashboard';
+    return process.env.NEXT_DASHBOARD_TITLE || "KubeRay Dashboard";
   }
 
   get logoUrl(): string | undefined {
@@ -115,8 +117,18 @@ export interface NamespaceProvider {
 export interface FilterProvider {
   getJobTypes(): string[];
   getClusterTypes(): string[];
-  filterJobs(jobs: Job[], search: string, statusFilter: Status | null, typeFilter: number): Job[];
-  filterClusters(clusters: Cluster[], search: string, statusFilter: ClusterStatus | null, typeFilter: number): Cluster[];
+  filterJobs(
+    jobs: Job[],
+    search: string,
+    statusFilter: Status | null,
+    typeFilter: number,
+  ): Job[];
+  filterClusters(
+    clusters: Cluster[],
+    search: string,
+    statusFilter: ClusterStatus | null,
+    typeFilter: number,
+  ): Cluster[];
 }
 
 export interface LinkProvider {
@@ -192,16 +204,24 @@ export const getNamespaceProvider = (): NamespaceProvider => {
 // src/providers/filter/StandardFilterProvider.ts
 export class StandardFilterProvider implements FilterProvider {
   getJobTypes(): string[] {
-    return ['All'];
+    return ["All"];
   }
 
   getClusterTypes(): string[] {
-    return ['All'];
+    return ["All"];
   }
 
-  filterJobs(jobs: Job[], search: string, statusFilter: Status | null, typeFilter: number): Job[] {
+  filterJobs(
+    jobs: Job[],
+    search: string,
+    statusFilter: Status | null,
+    typeFilter: number,
+  ): Job[] {
     return jobs.filter((job) => {
-      if (statusFilter && job.jobStatus.toUpperCase() !== statusFilter.toUpperCase()) {
+      if (
+        statusFilter &&
+        job.jobStatus.toUpperCase() !== statusFilter.toUpperCase()
+      ) {
         return false;
       }
       if (search && !job.name.toUpperCase().includes(search.toUpperCase())) {
@@ -211,12 +231,23 @@ export class StandardFilterProvider implements FilterProvider {
     });
   }
 
-  filterClusters(clusters: Cluster[], search: string, statusFilter: ClusterStatus | null, typeFilter: number): Cluster[] {
+  filterClusters(
+    clusters: Cluster[],
+    search: string,
+    statusFilter: ClusterStatus | null,
+    typeFilter: number,
+  ): Cluster[] {
     return clusters.filter((cluster) => {
-      if (statusFilter && cluster.clusterState.toUpperCase() !== statusFilter.toUpperCase()) {
+      if (
+        statusFilter &&
+        cluster.clusterState.toUpperCase() !== statusFilter.toUpperCase()
+      ) {
         return false;
       }
-      if (search && !cluster.name.toUpperCase().includes(search.toUpperCase())) {
+      if (
+        search &&
+        !cluster.name.toUpperCase().includes(search.toUpperCase())
+      ) {
         return false;
       }
       return true;
@@ -227,17 +258,25 @@ export class StandardFilterProvider implements FilterProvider {
 // src/providers/filter/ExtendedFilterProvider.ts
 export class ExtendedFilterProvider implements FilterProvider {
   getJobTypes(): string[] {
-    return ['All', 'Batch API'];
+    return ["All", "Batch API"];
   }
 
   getClusterTypes(): string[] {
-    return ['All', 'Jobs', 'Notebooks'];
+    return ["All", "Jobs", "Notebooks"];
   }
 
-  filterJobs(jobs: Job[], search: string, statusFilter: Status | null, typeFilter: number): Job[] {
+  filterJobs(
+    jobs: Job[],
+    search: string,
+    statusFilter: Status | null,
+    typeFilter: number,
+  ): Job[] {
     return jobs.filter((job) => {
       // Standard filtering
-      if (statusFilter && job.jobStatus.toUpperCase() !== statusFilter.toUpperCase()) {
+      if (
+        statusFilter &&
+        job.jobStatus.toUpperCase() !== statusFilter.toUpperCase()
+      ) {
         return false;
       }
       if (search && !job.name.toUpperCase().includes(search.toUpperCase())) {
@@ -245,8 +284,10 @@ export class ExtendedFilterProvider implements FilterProvider {
       }
 
       // Enterprise-specific type filtering
-      if (typeFilter === 1) { // Batch API jobs
-        const component = job.clusterSpec.headGroupSpec.labels?.["mlp.rbx.com/component"];
+      if (typeFilter === 1) {
+        // Batch API jobs
+        const component =
+          job.clusterSpec.headGroupSpec.labels?.["mlp.rbx.com/component"];
         return component === "rayllmbatchinference";
       }
 
@@ -254,19 +295,30 @@ export class ExtendedFilterProvider implements FilterProvider {
     });
   }
 
-  filterClusters(clusters: Cluster[], search: string, statusFilter: ClusterStatus | null, typeFilter: number): Cluster[] {
+  filterClusters(
+    clusters: Cluster[],
+    search: string,
+    statusFilter: ClusterStatus | null,
+    typeFilter: number,
+  ): Cluster[] {
     return clusters.filter((cluster) => {
       // Standard filtering
-      if (statusFilter && cluster.clusterState.toUpperCase() !== statusFilter.toUpperCase()) {
+      if (
+        statusFilter &&
+        cluster.clusterState.toUpperCase() !== statusFilter.toUpperCase()
+      ) {
         return false;
       }
-      if (search && !cluster.name.toUpperCase().includes(search.toUpperCase())) {
+      if (
+        search &&
+        !cluster.name.toUpperCase().includes(search.toUpperCase())
+      ) {
         return false;
       }
 
       // Enterprise-specific type filtering
       const isRayJob = this.clusterIsRayJob(cluster);
-      if (typeFilter === 1 && isRayJob) return false;  // Notebooks only
+      if (typeFilter === 1 && isRayJob) return false; // Notebooks only
       if (typeFilter === 2 && !isRayJob) return false; // Jobs only
 
       return true;
@@ -274,7 +326,8 @@ export class ExtendedFilterProvider implements FilterProvider {
   }
 
   private clusterIsRayJob(cluster: Cluster): boolean {
-    const jobType = cluster.clusterSpec.headGroupSpec.labels?.["mlp.rbx.com/component"];
+    const jobType =
+      cluster.clusterSpec.headGroupSpec.labels?.["mlp.rbx.com/component"];
     return jobType === "rayjob" || jobType === "rayllmbatchinference";
   }
 }
@@ -284,7 +337,7 @@ export const getFilterProvider = (): FilterProvider => {
   // Check for custom filter provider via environment variable
   const customProvider = process.env.NEXT_FILTER_PROVIDER;
 
-  if (customProvider === 'extended') {
+  if (customProvider === "extended") {
     return new ExtendedFilterProvider();
   }
 
@@ -299,21 +352,36 @@ export const getFilterProvider = (): FilterProvider => {
 export class TemplateLinkProvider implements LinkProvider {
   generateJobLinks(job: Job): JobLinks {
     return {
-      rayGrafanaDashboardLink: this.renderTemplate(features.grafanaUrlTemplate, job),
+      rayGrafanaDashboardLink: this.renderTemplate(
+        features.grafanaUrlTemplate,
+        job,
+      ),
       logsLink: this.renderTemplate(features.logsUrlTemplate, job),
-      rayHeadDashboardLink: this.renderTemplate(features.rayDashboardUrlTemplate, job),
+      rayHeadDashboardLink: this.renderTemplate(
+        features.rayDashboardUrlTemplate,
+        job,
+      ),
     };
   }
 
   generateClusterLinks(cluster: Cluster): ClusterLinks {
     return {
-      rayGrafanaDashboardLink: this.renderTemplate(features.grafanaUrlTemplate, cluster),
-      rayHeadDashboardLink: this.renderTemplate(features.rayDashboardUrlTemplate, cluster),
+      rayGrafanaDashboardLink: this.renderTemplate(
+        features.grafanaUrlTemplate,
+        cluster,
+      ),
+      rayHeadDashboardLink: this.renderTemplate(
+        features.rayDashboardUrlTemplate,
+        cluster,
+      ),
       notebookLink: this.renderTemplate(features.notebookUrlTemplate, cluster),
     };
   }
 
-  private renderTemplate(template: string | undefined, resource: Job | Cluster): string {
+  private renderTemplate(
+    template: string | undefined,
+    resource: Job | Cluster,
+  ): string {
     if (!template) return "";
 
     let result = template;
@@ -328,7 +396,7 @@ export class TemplateLinkProvider implements LinkProvider {
   }
 
   private getNestedValue(obj: any, path: string): any {
-    return path.split('.').reduce((current, key) => {
+    return path.split(".").reduce((current, key) => {
       return current && current[key] !== undefined ? current[key] : undefined;
     }, obj);
   }
